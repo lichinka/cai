@@ -1,0 +1,8 @@
+#
+# The master process runs here
+#
+tita.mobitel.si     slots=1
+#
+# The agents run here
+#
+myhost.mobitel.si   slots=8

@@ -1,0 +1,321 @@
+#!/usr/bin/env python
+
+############################################################################
+#
+# MODULE:      m.msi2antmap
+# AUTHOR(S):   Igor Ozimek, Jozef Stefan Institute
+#
+# PURPOSE:     Generating the antenna map file from msi format antenna pattern files
+#              (for r.radcov radio coverage tool)
+#
+# COPYRIGHT:   (C) 2010 Jozef Stefan Institute
+#
+#############################################################################
+#
+# Requires Python 2.4 or higher (tested with 2.4.3)
+#
+#
+# Revision history:
+#
+# 2-avg-10:
+#  - initial version
+
+
+#%module
+#%  label: m.msi2antmap
+#%  description: Antenna map file generation (from .MSI files)
+#%end
+
+#%option
+#%  key: antennaMsiDir
+#%  type: string
+#%  description: Antennas .MSI files input directory
+#%  required: yes
+#%  answer: $GISBASE/etc/radio_coverage/antenna_diagrams
+#%end
+
+#%option
+#%  key: antennaMapFile
+#%  type: string
+#  gisprompt: new_file,file,output
+#%  gisprompt: new,file,output
+#%  description: Antennas map output file (for r.radcov)
+#%  required: yes
+#%  answer: $GISBASE/etc/radio_coverage/antennamap
+#%end
+
+
+import os, sys
+if not os.environ.has_key("GISBASE"):
+    print "You must be in GRASS GIS to run this program."
+    sys.exit(1)
+
+import os.path, datetime, re
+
+# the following is required for GRASS 6.2 (does nothing for GRASS 6.4)
+# (GRASS 6.4 contains module grass.py in its etc/python directory and extends python path accordingly)
+phytpath = os.environ['GISBASE'] + '/etc/phyton'
+if not phytpath in sys.path:
+    sys.path.append(phytpath)
+
+import grass
+options, flags = grass.parser()
+
+mapset = grass.gisenv()['MAPSET']
+#workDir = grass.gisenv()['GISDBASE'] + '/' + grass.gisenv()['LOCATION_NAME'] + '/' + mapset
+
+
+#--------------------
+
+
+def getValue(lineList, name):
+    """ Find 'name' variable in 'lineList', return (1st) value, (1st) line number, and number of occurences """
+    rValue = ''
+    rLinenum = 0
+    count = 0
+    for cLinenum, cLine in enumerate(lineList):
+        cName, cValue = cLine.split(None,1)
+        cValue = cValue.strip().rstrip()
+        if cName == name:
+            count +=1
+            if count == 1:
+                rLinenum = cLinenum + 1
+                rValue = cValue
+                rValueList = cValue.split()
+    return rValue, rLinenum, count
+
+
+#--------------------
+
+
+"""
+The antennamap file is automatically generated from a set of .MSI files in a
+given directory.
+
+Each line of the antennamap file containes the antenna name, the electrical
+tilt, and the correspondig .MSI file name.
+
+Duplicates of (name,tilt) definitions are written as comments (warnings are
+generated).
+
+Antenna name is from the .MSI file, variable NAME - should be in the first
+line (otherwise error message is generated). Currently there is no limitations
+on the characters used (all non-white characters are allowed), or the name
+length.
+
+Electrical tilt should be from the .MSI file, variable TILT (in degrees).
+However, the existing .MSI files have the TILT value set to 'electrical' and
+the tilt value given as part of the file name, e.g.:
+742211_2140_X_CO_M45_02T.MSI means a tilt value of 2 degrees. So the script
+checks both, tests for mutual agreement if both are present, and generates an
+error if none is present.
+
+On use (e.g. in r.radcov), the antenna map file should initially be checked
+for duplicated (name,tilt) definitions and missing .MSI files (warnings/errors
+for unused/used antenna types respectively). This should be done to detect
+errors introduced by manual editing or creating of the antenna map file.
+"""
+
+
+inDirname = options['antennamsidir']
+outPathname = options['antennamapfile']
+
+# evaluate GISBASE enviroment variable
+gisBase = os.getenv('GISBASE')
+inDirname = inDirname.replace('$GISBASE', gisBase)
+outPathname = outPathname.replace('$GISBASE',gisBase)
+
+# create full absolute path for outPathname
+outPathname = os.path.join(gisBase + '/etc/radio_coverage', outPathname)
+
+
+# Generate the list of .MSI filenames in a given directory. Write the number of files found.
+if not os.path.isdir(inDirname):
+    grass.error('Input .MSI files directory (' + inDirname + ') does not exist')
+    sys.exit(1)
+filenameList = []
+for filename in os.listdir(inDirname):
+    if not os.path.isdir(os.path.join(inDirname, filename)):
+        filenameList.append(filename)
+filesNum = len(filenameList)
+grass.info(str(filesNum) + ' file(s) in the input directory ' + inDirname)
+msiFilenameList = []
+for filename in filenameList:
+    if os.path.splitext(filename)[1].upper() == '.MSI':
+        msiFilenameList.append(filename)
+msiFilesNum = len(msiFilenameList)
+if msiFilesNum <= 0:
+    grass.info('No .MSI files found')
+    sys.exit(0)
+grass.info(str(msiFilesNum) + ' .MSI files found')
+msiFilenameList.sort()
+
+# Check output file and directory (an existing file fould be overwritten, but Grass interface checks for this) 
+os.getenv('GRASS_OVERWRITE')
+
+outDirname, outFilename = os.path.split(outPathname)
+if os.path.isdir(outPathname):
+    grass.error('Output file error - output directory with the same name exists (' + outPathname + ')')
+    sys.exit(1)
+if not os.path.isdir(outDirname):
+    grass.error('Output directory (' + outDirname + ') does not exist')
+    sys.exit(1)
+if os.path.isfile(outPathname) and not os.getenv('GRASS_OVERWRITE'):
+    grass.error('Output file (' + outPathname + ') already exists (use --o flag to overwrite)')
+    sys.exit(1)
+
+
+# Process .MSI files, generate output file (outLinesList, write to file later)
+
+outLinesList = []
+errFlag = False
+antennaMapList = [] # used only to detect duplicate mappings (different .MSI file names, same antenna name & tilt)
+
+# loop through the list of .MSI files
+for msiFilename in msiFilenameList:
+    # read in a .MSI file
+    try:
+        msiFile = open(os.path.join(inDirname, msiFilename), 'r')
+        msiLines = msiFile.readlines()
+        msiFile.close()
+    except IOError, (errno, strerror):
+        grass.fatal('Cannot open or read input file:\n' + msiFile + '\nError no. ' + str(errno) + ', ' + strerror)
+        sys.exit(1)
+
+    # get the antenna name (variable NAME) - should be the first line, otherwise error
+    nameValue, line, count = getValue(msiLines, 'NAME')
+    if count == 0:
+        errFlag = True
+        grass.error('NAME variable definition not found in ' + msiFilename)
+        continue
+    if count > 1:
+        errFlag = True
+        grass.error('Multiple NAME variable definitions in ' + msiFilename)
+        continue
+    if line != 1:
+        errFlag = True
+        grass.error('NAME variable not in the first line of ' + msiFilename)
+        continue
+    if nameValue == '':
+        errFlag = True
+        grass.error('NAME variable with no value in ' + msiFilename)
+        continue
+    if len(nameValue.split()) > 1:
+        errFlag = True
+        grass.error('NAME variable with mulitple values in ' + msiFilename)
+        continue
+
+
+    # get the electrical tilt from the TILT variable:
+    #   - if no TILT variabe: error
+    #   - valid values are 0..90 (integer)
+    #   - if value "electrical": ignore
+    #   - all other values: error
+    tiltValueDefined = False
+    (tiltValue, line, count) = getValue(msiLines, 'TILT')
+    if count > 1:
+        errFlag = True
+        grass.error('Multiple TILT variable definitions in ' + msiFilename)
+        continue
+    elif count == 1:
+        if tiltValue == '':
+            errFlag = True
+            grass.error('TILT variable with no value in ' + msiFilename)
+            continue
+        if len(tiltValue.split()) > 1:
+            errFlag = True
+            grass.error('TILT variable with mulitple values in ' + msiFilename)
+            continue
+        if tiltValue.lower() == 'electrical':
+            pass
+        elif tiltValue.isdigit():
+            tiltNumValue = int(tiltValue)
+            if tiltNumValue < 0 or tiltNumValue > 90:
+                errFlag = True
+                grass.error('TILT value (=' + str(tiltNumValue) + ') out od bounds in ' + msiFilename + ' (0..90 allowed)')
+                continue
+            else:
+                tiltValueDefined = True
+        else:
+            errFlag = True
+            grass.error('Wrong TILT value in ' + msiFilename + "(only integer numeric or 'electrical' allowed)")
+            continue
+
+
+    # get the electrical tilt from the .MSI filename (subtring '_nnT_' or '_nnT.MSI', where n=0..9)
+    nnTvalueDefined = False
+    msiFilenameNoext = os.path.splitext(msiFilename)[0]
+    nnTlist = re.findall(r'_[0-9]{1,2}T(?:_|\Z)', msiFilenameNoext)
+    if len(nnTlist) > 1: 
+        grass.error('There seem to be more than a single tilt definition in ' + msiFilename)
+        continue
+    elif len(nnTlist) == 1:
+        nnTnumValue = int(nnTlist[0].strip('_T'))
+        nnTvalueDefined = True
+
+    # both tilt values should agree, at least one should be present, otherwise error
+    if not tiltValueDefined and not nnTvalueDefined:
+        grass.error('No electrical tilt definition in ' + msiFilename)
+        continue
+    if tiltValueDefined and nnTvalueDefined:
+        if tiltNumValue != nnTnumValue:
+            grass.error('Tilt values in the file and filename ' + msiFilename + ' do not agree')
+            continue
+    if not tiltValueDefined:
+        tiltNumValue = nnTnumValue
+
+
+    # get the comment from the COMMENT variable:
+    commentValueDefined = False
+    (commentValue, line, count) = getValue(msiLines, 'COMMENT')
+    if count > 1:
+        errFlag = True
+        grass.error('Multiple COMMENT variable definitions in ' + msiFilename)
+        continue
+    elif count == 1:
+        commentValueDefined = True
+
+
+    # check if antenna name has already been defined - write it as a comment and generate warning
+    for (name, value) in antennaMapList:
+        if name == nameValue and value == tiltNumValue:
+            grass.warning('Duplicate antena type & tilt definition (' + msiFilename +
+                          '), this .MSI file will be ignored (commented out in the output antenna mapping file)')
+            outLine = '#**duplicate**\n#'
+            break
+    else:
+        outLine  = ''
+        antennaMapList.append((nameValue, tiltNumValue))
+
+
+    # add to the output file line list
+    outLine += nameValue.ljust(22) + ' ' + str(tiltNumValue).rjust(2) + '     ' + msiFilename
+    if commentValueDefined:
+       outLine += '     # ' + commentValue
+    outLinesList.append(outLine)
+
+if errFlag:
+    grass.error('Errors encountered, no output file generated')
+    sys.exit(1)
+
+# Write some comment lines, the directory line and antennas mapping lines
+try:
+    outFile = open(outPathname, 'w')
+except IOError, (errno, strerror):
+    grass.fatal('Cannot open output file for writing:\n' + outPathname + '\nError no. ' + str(errno) + ', ' + strerror)
+    sys.exit(1)
+
+try:
+    outFile.write('# Antenna map file for r.radcov,\n')
+    outFile.write('# generated by m.msi2antmap, ' +  str(datetime.datetime.today()).split('.')[0] + '\n\n')
+    outFile.write('_directory_         ' + inDirname + '\n\n')
+    outFile.write('#antenna_type        e_tilt    .MSI file  (+ comment from .MSI file) \n')
+    for line in outLinesList:
+        outFile.write(line + '\n')
+    outFile.close()
+except IOError, (errno, strerror):
+    grass.fatal('Writing to output file failed:\n' + outPathname + '\nError no. ' + str(errno) + ', ' + strerror)
+    sys.exit(1)
+
+grass.info('Output file generated')
+grass.info('Processing finished')

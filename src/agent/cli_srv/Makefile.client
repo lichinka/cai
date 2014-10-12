@@ -1,0 +1,17 @@
+CXX = mpicc
+CXXFLAGS = -g -O2
+INC = -I /usr/include
+LIB =
+BINARY = mclient
+OBJECTS = mclient.o
+
+all: $(BINARY)
+
+$(BINARY): $(OBJECTS)
+	$(CXX) -o $(BINARY) $(OBJECTS) $(LIB)
+
+%.o: %.c
+	$(CXX) $(CXXFLAGS) $(INC) -c $<
+
+clean:
+	rm -f $(BINARY) $(OBJECTS)

@@ -1,0 +1,373 @@
+
+/****************************************************************************
+ *
+ * MODULE:       db.CompareResults
+ *
+ * AUTHOR(S):    Andrej Hrovat, Tine Celcer               
+ *
+ * PURPOSE:      Primerjava meritev z rezultati modela
+ *             
+ *
+ * COPYRIGHT:    (C) 2009 Jozef Stefan Institute
+ *
+ *
+ *****************************************************************************/
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <grass/gis.h>
+#include <grass/dbmi.h>
+#include <grass/glocale.h>
+#include <grass/codes.h>
+#include <ctype.h>
+
+int compose_select_sql_string(char *table_name, dbString *sql, int x, int y)
+{
+
+    char buf[100];
+
+    db_set_string(sql,"SELECT * FROM ");
+    db_append_string(sql, table_name);
+    db_append_string(sql, " WHERE ");
+    
+    sprintf(buf, "x=%d AND y=%d",x,y);
+	 
+    db_append_string(sql, buf);
+     
+    G_debug(3, db_get_string(sql));
+
+    return DB_OK;
+ }
+
+//-----------------------------------------------------------------------------
+
+int get_data(dbDriver *driver, dbString *sql, char *str,int var)
+{
+    dbCursor cursor;
+    dbTable *table;
+    dbColumn *column;
+    dbValue *value;
+    dbString value_string;
+    int col, ncols;
+    int more;
+    int stop=0;
+
+    if (db_open_select_cursor(driver, sql, &cursor, DB_SEQUENTIAL) != DB_OK)
+	return ERROR;
+    
+    table = db_get_cursor_table(&cursor);
+    ncols = db_get_table_number_of_columns(table);
+
+    db_init_string(&value_string);
+
+    /* fetch the data */
+    while (1) 
+     {
+	if (db_fetch(&cursor, DB_NEXT, &more) != DB_OK)
+	    return ERROR;
+        if (!more || stop==1)
+	    break;	    			
+
+	for (col = 0; col < ncols; col++)
+	 {
+	    column = db_get_table_column(table, col);
+	    value = db_get_column_value(column);
+	    db_convert_column_value_to_string(column, &value_string);
+	    
+	    if (col)
+		strcat(str, "|"); // vpise field separator  
+	   
+            if(!col)
+	        strcpy(str,db_get_string(&value_string)); 
+	    else
+                strcat(str,db_get_string(&value_string));
+           
+	  if (var==1)
+	     stop=1;  
+	 }
+	
+     }
+
+    return DB_OK;
+}
+
+//-----------------------------------------------------------------------------
+
+int main(int argc, char *argv[])
+{
+ dbConnection conn;
+ dbDriver *driver; 
+ dbString sql_string[500];
+ char table_row_str[500];
+ char *name;
+ char *mapset;
+ char *tabname;
+ char *drv_name;
+ char *db_name;
+ char *meas_name;
+ char *out_file; 
+ FILE *data_input,*data_output;
+ char buffer[500];
+ char buffer1[500];
+ char buffer2[500];
+ char add_str[30];
+ char *sep;
+ int counter=0;
+ int field_sep[5];
+ double x_start,y_start,res_x,res_y;
+ double x_rast,y_rast,temp;
+ double x_measured,y_measured;
+ int i,j,n=0;
+ char sect_name[10];
+ double rec_power_measured,rec_power_calculated,rec_power_diff;
+ double mean_diff;
+ char model[40];
+ 
+ struct Cell_head cellhd;
+ struct GModule *module;	    /* GRASS module for parsing arguments */
+ struct Option *table,*input,*measure,*output,*driver_name,*database; 		    /* options */
+ struct Flag *flag1;		    /* flags */
+
+ /* initialize GIS environment */
+    G_gisinit(argv[0]);		/* reads grass env, stores program name to G_program_name() */
+
+    /* initialize module */
+    module = G_define_module();
+    module->keywords = _("test, DB");
+    module->description = _("module for DB testing"); 
+    
+    /* Define the different flags */
+    flag1 = G_define_flag();
+    flag1->key = 'q';
+    flag1->description = _("Quiet");
+
+    input = G_define_standard_option(G_OPT_R_INPUT);
+    input->key = "DEM_raster";
+    input->required = YES;
+    input->description = _("Elevation model - required for raster window determination");    
+
+    table = G_define_option();
+    table->required = YES;
+    table->key = "table";
+    table->type = TYPE_STRING;
+    table->description = _("Table name");
+
+    driver_name = G_define_option();
+    driver_name->required = YES;
+    driver_name->key = "driver";
+    driver_name->type = TYPE_STRING;
+    driver_name->description = _("Driver name");
+    driver_name->options = db_list_drivers();
+    driver_name->answer = (char *) db_get_default_driver_name();
+
+    database = G_define_option();
+    database->required = YES;
+    database->key = "database";
+    database->type = TYPE_STRING;
+    database->description = _("Database name");
+    database->answer = (char *) db_get_default_database_name();
+
+    measure = G_define_option();
+    measure->key = "measurement_data";
+    measure->type = TYPE_STRING;
+    measure->required = YES;
+    measure->gisprompt = "old_file,file,input";
+    measure->description = _("Received power field measurement data");
+
+    output = G_define_option();
+    output->key = "output";
+    output->type = TYPE_STRING;
+    output->required = YES;
+    output->gisprompt = "new_file,file,output";
+    output->description =_("Output file");
+
+    /* options and flags parser */
+    if (G_parser(argc, argv))
+	exit(EXIT_FAILURE);
+
+    /* stores options and flags to variables */
+   name = input->answer;
+   tabname = table->answer;
+   drv_name = driver_name->answer;
+   db_name = database->answer;
+   meas_name = measure->answer;
+   out_file=output->answer;
+
+   mapset = G_find_cell2(name, "");
+   if (mapset == NULL)
+       G_fatal_error(_("Raster map <%s> not found"), name);
+   
+   /* controlling, if we can open input raster and get cell header info */
+    if (G_get_cellhd(name, mapset, &cellhd) < 0)
+	G_fatal_error(_("Unable to read file header of <%s>"), name);
+ 
+   /* set connection */
+   db_get_connection(&conn);	/* read current */
+
+   if (driver_name->answer)
+	conn.driverName = drv_name;
+
+   if (database->answer)
+	conn.databaseName = db_name;
+
+   db_set_connection(&conn);
+
+   // start driver, open database
+   driver = db_start_driver_open_database(drv_name, db_name);
+
+   //check if table exists
+   if (db_table_exists(drv_name, db_name,tabname)==0)
+       G_fatal_error(_("Table <%s> does not exist"), tabname);
+  
+   
+   //*****extract data from measurement file*****
+   if( (data_input = fopen(meas_name,"r")) == NULL )
+		G_fatal_error(_("Unable to open file <%s>"), meas_name);
+
+   if( (data_output = fopen(out_file,"w")) == NULL )
+		G_fatal_error(_("Unable to open file <%s>"), out_file);
+   
+   //read two header lines and write modified header info in output file
+   fgets (buffer, 500, data_input);
+   strcpy(buffer,"        time         |   x    |   y    |  cell   |        rscp         | x_rast | y_rast |  rscp_sim   |            model             | rscp_diff  ");
+   fprintf(data_output,"%s\r\n",buffer);    
+ 
+   fgets (buffer, 500, data_input);
+   buffer[strlen(buffer)-1]=0;
+   strcat(buffer,"+--------+--------+-------------+------------------------------+------------");
+   fprintf(data_output,"%s\r\n",buffer);
+
+   int col_length[]={8,8,13,30,12}; //st. znakov v posameznem dodanem stolpcu 
+   
+    while(fgets(buffer,500,data_input)!=NULL)
+    {
+        if(strchr(buffer,'(') != NULL)
+            break; 
+
+        i=0;
+	j=0;
+  	while(buffer[i] != NULL)
+	{
+          
+         if(!isspace(buffer[i]))
+         {           
+	   buffer1[j]=buffer[i];
+           j++;                     
+         }
+	i++;        
+	}
+        buffer1[j]=0; //NULL character 
+	 
+        //parsing the output string 
+        counter=0;
+        sep = strchr(buffer1,'|');       
+        
+        while (sep != NULL) {
+            field_sep[counter]=sep-buffer1;
+	    buffer1[sep-buffer1]=0;
+	    counter++;
+            sep = strchr(sep+1,'|');
+	 }
+        
+       	 strcpy(buffer2,&buffer1[field_sep[0]+1]);        
+         x_measured = atoi(buffer2);
+               
+   	 strcpy(buffer2,&buffer1[field_sep[1]+1]);
+         y_measured = atoi(buffer2);
+
+	 strcpy(sect_name,&buffer1[field_sep[2]+1]);
+
+	 strcpy(buffer2,&buffer1[field_sep[3]+1]);
+         rec_power_measured = atof(buffer2);
+      
+         strcpy(buffer1,""); //empty the buffer 
+ 
+        //mapping x_measured and y_measured to x_rast and y_rastd
+        
+        x_start=round(cellhd.west);
+   	y_start=round(cellhd.north);
+    	res_x = round(cellhd.ew_res);
+    	res_y = round(cellhd.ns_res);
+
+        temp = round((x_measured-x_start)/res_x);
+   	x_rast = x_start+temp*res_x;
+
+   	temp = round((y_start-y_measured)/res_y);
+   	y_rast = y_start - temp*res_y;
+        
+        /* check if specified measuemrent point is inside the raster window  */
+	if (x_rast < round(cellhd.west) || x_rast > round(cellhd.east) || y_rast > round(cellhd.north) || y_rast < round(cellhd.south))
+              continue;
+   
+   	//*****extract simulation data from database*****
+ 
+  	//compose select SQL string		
+     	if (compose_select_sql_string (tabname,sql_string,(int)x_rast,(int)y_rast) != DB_OK)
+                G_fatal_error(_("Error in function 'compose_insert_sql_string'!"));
+
+     	if (get_data (driver,sql_string,table_row_str,0) != DB_OK)
+		G_fatal_error(_("Error in function 'get_data'!"));
+
+     	//parsing the output string
+     	counter=0;   
+     	sep = strchr(table_row_str,'|');        
+     	while (sep != NULL) {
+           field_sep[counter]=sep-table_row_str;
+	   table_row_str[sep-table_row_str]=0;	
+	   counter++;
+           sep = strchr(sep+1,'|');
+     	  }
+
+        //get calculated power and used model from the string
+        for(i=0;i<counter;i++) {
+          
+	  if(strcmp(sect_name,&table_row_str[field_sep[i]+1])==0){
+             strcpy(buffer1,&table_row_str[field_sep[i+1]+1]);
+             rec_power_calculated = atof(buffer1)/100; 
+	     strcpy(model,&table_row_str[field_sep[i+2]+1]);           
+	     break;
+	    }       
+         }
+
+        //****compare measured and calculated results and write them in txt file****
+        rec_power_diff = rec_power_measured-rec_power_calculated;
+   
+        if(rec_power_diff > 500)
+	  continue;
+        
+        //calculate mean rscp difference
+	 n++;
+         if (n==1)
+          mean_diff = rec_power_diff;
+         else           
+	  mean_diff = (double)(n-1)/(double)n* mean_diff + (1/(double)n)*rec_power_diff;   
+           
+        //write data in output file
+        buffer[strlen(buffer)-1]=0;
+        sprintf(add_str," | %d | %d ",(int)x_rast,(int)y_rast);
+        strcat(buffer,add_str);
+        sprintf(add_str,"| %f",rec_power_calculated);
+        strcat(buffer,add_str);
+        for (i=0;i<(col_length[2]-(strlen(add_str)-1));i++)
+            strcat(buffer," ");
+        sprintf(add_str,"| %s",model);
+        strcat(buffer,add_str);
+        for (i=0;i<(col_length[3]-(strlen(add_str)-1));i++)
+            strcat(buffer," ");
+        sprintf(add_str,"| %f",rec_power_diff);
+        strcat(buffer,add_str);
+        for (i=0;i<(col_length[4]-(strlen(add_str)-1));i++)
+            strcat(buffer," ");
+        fprintf(data_output,"%s\r\n",buffer);
+        
+    } //while loop
+
+   G_message(_("\n mean rscp difference = %f dB"),mean_diff);
+
+  db_close_database(driver);
+  db_shutdown_driver(driver);
+
+  exit(EXIT_SUCCESS);
+}

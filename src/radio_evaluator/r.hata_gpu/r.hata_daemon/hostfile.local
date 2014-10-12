@@ -1,0 +1,4 @@
+#
+# All processes run here
+#
+localhost           slots=1

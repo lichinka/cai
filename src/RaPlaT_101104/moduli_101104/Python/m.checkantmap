@@ -1,0 +1,308 @@
+#!/usr/bin/env python
+
+############################################################################
+#
+# MODULE:      m.checkantmap
+# AUTHOR(S):   Igor Ozimek, Jozef Stefan Institute
+#
+# PURPOSE:     Checking the antenna map file
+#
+# COPYRIGHT:   (C) 2010 Jozef Stefan Institute
+#
+#############################################################################
+#
+# Requires Python 2.4 or higher (tested with 2.4.3)
+#
+#
+# Revision history:
+#
+# 2-avg-10:
+#  - initial version
+
+
+#%module
+#%  label: m.checkantmap
+#%  description: Antenna map file checking
+#%end
+
+#%option
+#%  key: antennaMapFile
+#%  type: string
+#%  gisprompt: old_file,file,input
+#%  description: Antennas map file (for r.radcov)
+#%  required: yes
+#%  answer: $GISBASE/etc/radio_coverage/antennamap
+#%end
+
+
+"""
+The antenna map file is checked for duplicated (name,tilt) definitions and
+missing .MSI files (warnings/errors respectively).
+
+Each line of the antennamap file (except empty lines, comments and _directory_
+lines) containes an antenna name, its electrical tilt, the correspondig .MSI
+file name and optionally a comment.
+"""
+
+
+import os, sys
+if not os.environ.has_key("GISBASE"):
+    print "You must be in GRASS GIS to run this program."
+    sys.exit(1)
+
+import os.path, re
+
+# the following is required for GRASS 6.2 (does nothing for GRASS 6.4)
+# (GRASS 6.4 contains module grass.py in its etc/python directory and extends python path accordingly)
+phytpath = os.environ['GISBASE'] + '/etc/phyton'
+if not phytpath in sys.path:
+    sys.path.append(phytpath)
+
+import grass
+options, flags = grass.parser()
+
+
+# get the name of the antenna map file from the parameter (or default)
+inPathname = options['antennamapfile']
+# evaluate GISBASE enviroment variable
+gisBase = os.getenv('GISBASE')
+inPathname = inPathname.replace('$GISBASE',gisBase)
+# create full absolute path for inPathname
+inPathname = os.path.join(gisBase + '/etc/radio_coverage', inPathname)
+
+
+# read in the antenna map file
+try:
+    amFile = open(inPathname, 'r')
+    amLines = amFile.readlines()
+    amFile.close()
+except IOError, (errno, strerror):
+    grass.fatal('Cannot open or read input file:\n' + inPathname + '\nError no. ' + str(errno) + ', ' + strerror)
+    sys.exit(1)
+
+
+# process
+msiDirname = gisBase + '/etc/radio_coverage/antenna_diagrams'
+mappings = []
+tiltCheckList = []
+warnCount = 0
+errCount = 0
+for ixl, line in enumerate( amLines):
+    line = line.rstrip()
+    errMsg = ''
+    warnMsg = ''
+
+##    print '****** ',ixl, line
+
+    if line == '':
+        continue  #empty line
+
+    if line[0] == '#':
+        continue  #comment only line
+
+    lineWords = line.split(None,1)
+
+    if lineWords[0] == '_directory_':
+        # _directory_ line
+        lineWords = line.split(None,2)
+        if len( lineWords) < 2:
+            errMsg += '  Missing directory name in the _directory_ line\n'
+        else:
+            dirname = lineWords[1]
+            comment = '#'
+            if len( lineWords) > 2:
+                comment = lineWords[2]
+            if dirname[0] == '#':
+                errMsg += '  Missing directory name in the _directory_ line\n'
+            else:
+                # evaluate GISBASE enviroment variable
+                msiDirname = dirname.replace('$GISBASE',gisBase)
+                # check for directory existence
+                if not os.path.isdir(msiDirname):
+                    warnMsg += '  .MSI files directory (' + msiDirname + ') does not exist\n'
+                # parameters past the directory name ?
+                if comment[0] != '#':
+                    warnMsg += '  Superfluous parameter(s) (' + comment + ') in the _directory_ line\n'
+
+    else:
+        # mapping line
+        lineWords = line.split(None,3)
+        if len( lineWords) < 3:
+            errMsg += '  Missing tilt value and/or .MSI filename in the antenna mapping line\n'
+        else:
+            name = lineWords[0]
+            tilt = lineWords[1]
+            msiFilename = lineWords[2]
+            comment = '#'
+            if len( lineWords) > 3:
+                comment = lineWords[3]
+            if tilt[0] == '#':
+                errMsg += '  Missing tilt value in the antenna mapping line\n'
+            if not tilt.isdigit():
+                errMsg += '  Tilt value (' + tilt + ') should be integer\n'
+            else:
+                tiltValue = int(tilt)
+                if msiFilename[0] == '#':
+                    errMsg += '  Missing .MSI filename in the antenna mapping line\n'
+                else:
+                # check for the .MSI file existence
+                    msiPath = os.path.join(msiDirname, msiFilename)
+                    if not os.path.isfile(msiPath):
+                        warnMsg += '  .MSI file (' + msiPath + ') does not exist\n'
+                    # parameters past the .MSI filename ?
+                    if comment[0] != '#':
+                        warnMsg += '  Superfluous parameter(s) (' + comment + ') in the antenna mapping line\n'
+
+        # check for duplicated (name,tilt) definitions
+        if errMsg == '':
+            for [mIxl, mName, mTiltValue] in mappings:
+                if mName == name and mTiltValue == tiltValue:
+                    if errMsg != '':
+                        print '??? INTERNAL ERROR - duplicated (name,tilt) entries in the mapping list ?'
+                    errMsg += '  Duplicated name & tilt definition - already defined in the antenna mapping file, line ' + str(mIxl+1) + '\n'
+            # add to the mapping list
+            if errMsg == '':
+                mappings.append([ixl, name, tiltValue])
+                if warnMsg == '':
+                    tiltCheckList.append([ixl, msiPath, tiltValue])
+
+
+    # diagnostics
+    if errMsg != '':
+        grass.error('Line ' + str(ixl+1) + ':\n  ' + line + '\n' + errMsg.rstrip())
+        errCount += 1
+    if warnMsg != '':
+        grass.warning('Line ' + str(ixl+1) + ':\n  ' + line + '\n' + warnMsg.rstrip())
+        warnCount += 1
+
+grassMsg = 'Antennas mapping file ' + inPathname + ' has been checked\n'
+if errCount == 0:
+    grassMsg += 'No errors'
+else:
+    grassMsg += str(errCount) + ' error(s)'
+grassMsg += ' and '
+if warnCount == 0:
+    grassMsg += 'no warnings'
+else:
+    grassMsg += str(warnCount) + ' warning(s)'
+grassMsg += ' found\n'
+
+grass.info(grassMsg)
+
+
+# Proceeding with the tilt agreement test for existing .MSI files
+##print '*** MAPPINGS:'
+##for l in mappings: print l
+##print '*** TILTCHECKLIST:'
+##for l in tiltCheckList: print l
+
+grass.info('Proceeding with the tilt agreement test for the existing .MSI files:')
+
+#--------
+
+def getValue(lineList, name):
+    """ Find 'name' variable in 'lineList', return (1st) value, (1st) line number, and number of occurences """
+    rValue = ''
+    rLinenum = 0
+    count = 0
+    for cLinenum, cLine in enumerate(lineList):
+        cName, cValue = cLine.split(None,1)
+        cValue = cValue.strip().rstrip()
+        if cName == name:
+            count +=1
+            if count == 1:
+                rLinenum = cLinenum + 1
+                rValue = cValue
+                rValueList = cValue.split()
+    return rValue, rLinenum, count
+
+#--------
+
+
+errFlag = False
+for [ixl, msiPath, amTiltValue] in tiltCheckList:
+    msiFilename = os.path.split(msiPath)[1]
+
+    # get the electrical tilt from the .MSI filename (subtring '_nnT_' or '_nnT.MSI', where n=0..9)
+    nnTvalueDefined = False
+    msiFilenameNoext = os.path.splitext(msiFilename)[0]
+    nnTlist = re.findall(r'_[0-9]{1,2}T(?:_|\Z)', msiFilenameNoext)
+    if len(nnTlist) > 1: 
+        grass.error('There seem to be more than a single tilt definition in ' + msiFilename)
+        continue
+    elif len(nnTlist) == 1:
+        nnTnumValue = int(nnTlist[0].strip('_T'))
+        nnTvalueDefined = True
+
+    # read in a .MSI file
+    try:
+        msiFile = open(msiPath, 'r')
+        msiLines = msiFile.readlines()
+        msiFile.close()
+    except IOError, (errno, strerror):
+        grass.fatal('Cannot open or read input file:\n' + msiFile + '\nError no. ' + str(errno) + ', ' + strerror)
+        sys.exit(1)
+
+    # get the tilt from the .MSI file
+    # get the electrical tilt from the TILT variable:
+    #   - if no TILT variabe: error
+    #   - valid values are 0..90 (integer)
+    #   - if value "electrical": ignore
+    #   - all other values: error
+    tiltValueDefined = False
+    (tiltValue, line, count) = getValue(msiLines, 'TILT')
+    if count > 1:
+        errFlag = True
+        grass.error('Multiple TILT variable definitions in ' + msiFilename)
+        continue
+    elif count == 1:
+        if tiltValue == '':
+            errFlag = True
+            grass.error('TILT variable with no value in ' + msiFilename)
+            continue
+        if len(tiltValue.split()) > 1:
+            errFlag = True
+            grass.error('TILT variable with mulitple values in ' + msiFilename)
+            continue
+        if tiltValue.lower() == 'electrical':
+            pass
+        elif tiltValue.isdigit():
+            tiltNumValue = int(tiltValue)
+            if tiltNumValue < 0 or tiltNumValue > 90:
+                errFlag = True
+                grass.error('TILT value (=' + str(tiltNumValue) + ') out od bounds in ' + msiFilename + ' (0..90 allowed)')
+                continue
+            else:
+                tiltValueDefined = True
+        else:
+            errFlag = True
+            grass.error('Wrong TILT value in ' + msiFilename + "(only integer numeric or 'electrical' allowed)")
+            continue
+
+
+    # chech tilt value agreement between the antennas mapping file and
+    # .MSI files (filename and in-file TILT parameter are checked)
+    if not nnTvalueDefined and not tiltValueDefined:
+        grass.error('No tilt defined in ' + msiFilename)
+        errFlag = True
+    else:
+        if (nnTvalueDefined  and nnTnumValue  != amTiltValue or
+            tiltValueDefined and tiltNumValue != amTiltValue):
+            errFlag = True
+            grassMsg = 'Tilt values in line ' + str(ixl+1) + ' for file ' + msiFilename + ' disagree\n'
+            grassMsg += 'Line ' + str(ixl+1) + ': ' + str(amTiltValue) + ',  '
+            if nnTvalueDefined:
+                grassMsg += '.MSI filename: ' + str(nnTnumValue) + ',  '
+            else:
+                grassMsg += '.MSI filename: (none),  '
+            if tiltValueDefined:
+                grassMsg += '.MSI file TILT parameter: ' + str(tiltNumValue)
+            else:
+                grassMsg += '.MSI file TILT parameter: (none)'
+            grass.error(grassMsg)
+
+
+if errFlag:
+    grass.error('Tilt disagrement(s) found\n')
+else:
+    grass.info('Processing finished, no disagreements found\n')

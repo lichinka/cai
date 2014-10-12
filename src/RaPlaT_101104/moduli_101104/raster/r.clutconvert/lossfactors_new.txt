@@ -1,0 +1,13 @@
+Terrene type loss factors  (11-urbano1, 12-urbano2, 13-urbano3, 14-urbano4, 15-urbano5, 16-gozd iglasti, 17-gozd listnati, 18-gozd mesani, 19-grmicevje, 20-voda, 21-kmetijsko, 22-odprto)
+28
+25
+22
+18
+15
+25
+20
+22
+15
+3
+15.5
+5.5

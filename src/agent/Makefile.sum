@@ -1,0 +1,17 @@
+CXX = mpicc
+CXXFLAGS = -g -O2
+INC = -I /usr/include
+LIB =
+BINARY = sum_example
+OBJECTS = sum_example.o
+
+all: $(BINARY)
+
+$(BINARY): $(OBJECTS)
+	$(CXX) -o $(BINARY) $(OBJECTS) $(LIB)
+
+%.o: %.c
+	$(CXX) $(CXXFLAGS) $(INC) -c $<
+
+clean:
+	rm -f $(BINARY) $(OBJECTS)

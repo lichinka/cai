@@ -1,0 +1,520 @@
+
+/****************************************************************************
+ *
+ * MODULE:       r.CompareMobitel
+ *
+ * AUTHOR(S):    Tine Celcer               
+ *
+ * PURPOSE:      Primerjava meritev z Mobitelovimi simulacijami
+ *             
+ *
+ * COPYRIGHT:    (C) 2009 Jozef Stefan Institute
+ *
+ *
+ *****************************************************************************/
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <grass/gis.h>
+#include <grass/dbmi.h>
+#include <grass/glocale.h>
+#include <grass/codes.h>
+#include <ctype.h>
+
+int compose_insert_sql_string(dbTable *table, dbString *sql, int x, int y, int res, FCELL max_power)
+ {
+       
+    int col, ncols;
+    dbColumn *column;
+    const char *colname;
+    char buf[500];
+
+    db_set_string(sql,"INSERT INTO ");
+    db_append_string(sql, db_get_table_name(table));
+    db_append_string(sql, " ( ");
+
+    ncols = db_get_table_number_of_columns(table);
+        
+    for (col = 0; col < ncols; col++) 
+    {    
+      column = db_get_table_column(table, col);
+      colname = db_get_column_name(column);
+      G_debug(3, "%s", colname);
+
+      if (col > 0)
+	 db_append_string(sql, ", ");
+      
+     db_append_string(sql, colname);
+    }
+ 
+        
+    db_append_string(sql, " ) VALUES (");
+
+    sprintf(buf, "%d,%d,%d,%d",x,y,res,(int)(max_power*100));
+
+    db_append_string(sql, buf);
+ 
+    db_append_string(sql, " )");
+ 
+    G_debug(3, db_get_string(sql));
+
+    return DB_OK;
+ }
+
+//------------------------------------------------------------------------------
+
+
+int compose_select_sql_string(char *table_name, dbString *sql, int x, int y)
+{
+
+    char buf[100];
+
+    db_set_string(sql,"SELECT * FROM ");
+    db_append_string(sql, table_name);
+    db_append_string(sql, " WHERE ");
+    
+    sprintf(buf, "x=%d AND y=%d",x,y);
+	 
+    db_append_string(sql, buf);
+     
+    G_debug(3, db_get_string(sql));
+
+    return DB_OK;
+ }
+
+//-----------------------------------------------------------------------------
+
+int get_data(dbDriver *driver, dbString *sql, char *str,int var)
+{
+    dbCursor cursor;
+    dbTable *table;
+    dbColumn *column;
+    dbValue *value;
+    dbString value_string;
+    int col, ncols;
+    int more;
+    int stop=0;
+
+    if (db_open_select_cursor(driver, sql, &cursor, DB_SEQUENTIAL) != DB_OK)
+	return ERROR;
+    
+    table = db_get_cursor_table(&cursor);
+    ncols = db_get_table_number_of_columns(table);
+
+    db_init_string(&value_string);
+
+    /* fetch the data */
+    while (1) 
+     {
+	if (db_fetch(&cursor, DB_NEXT, &more) != DB_OK)
+	    return ERROR;
+        if (!more || stop==1)
+	    break;	    			
+
+	for (col = 0; col < ncols; col++)
+	 {
+	    column = db_get_table_column(table, col);
+	    value = db_get_column_value(column);
+	    db_convert_column_value_to_string(column, &value_string);
+	    
+	    if (col)
+		strcat(str, "|"); // vpise field separator  
+	   
+            if(!col)
+	        strcpy(str,db_get_string(&value_string)); 
+	    else
+                strcat(str,db_get_string(&value_string));
+           
+	  if (var==1)
+	     stop=1;  
+	 }
+	
+     }
+
+    return DB_OK;
+}
+
+//-----------------------------------------------------------------------------
+
+int main(int argc, char *argv[])
+{
+  dbConnection conn;
+  dbDriver *driver; 
+  dbTable *table; 
+  char *name;  
+  char *tabname;
+  char *drv_name;
+  char *db_name;
+  char *meas_name;
+  char *out_file;  
+  FILE *data_input,*data_output;
+  int ncols_tab,tab_ovr,verbose,ijs;
+  double Pt;
+
+  char *mapset;		/* mapset name */
+  void *inrast;		/* input buffer */
+  int infd;               /* output file descriptor */
+  FCELL max_power;
+  char model_name[20];
+  struct Cell_head cellhd;	/* it stores region information,
+				   and header information of rasters */
+  dbString table_name;
+  double x_start,y_start,x_current,y_current,res_x,res_y;
+  int nrows, ncols, row, col;
+  dbString sql[500];
+
+  char buffer[500];
+  char buffer1[500];
+  char buffer2[500];
+  char add_str[30];
+  char *sep;
+  int counter=0;
+  int field_sep[5];
+  double x_rast,y_rast;
+  double x_measured,y_measured;
+  int i,j;
+  double rec_power_measured,rec_power_calculated,rec_power_diff;
+  double temp;
+  dbString sql_string[500];
+  char table_row_str[500]; 
+
+  struct GModule *module;	    /* GRASS module for parsing arguments */
+  struct Option *table_input,*input,*measurements,*output, *model, *trans_pow,*driver_name,*database;
+  struct Flag *flag1, *flag2, *flag3;		    /* flags */
+  
+  /* initialize GIS environment */
+  G_gisinit(argv[0]);		/* reads grass env, stores program name to G_program_name() */
+
+  /* initialize module */
+  module = G_define_module();
+  module->keywords = _("CompareMobitel, raster,db");
+  module->description = _("Compare Mobitel results with measuerments module");
+
+  input = G_define_standard_option(G_OPT_R_INPUT);
+  input->key = "MaxPower_raster";
+  input->required = YES;
+  input->description = _("Input MaxPower raster");
+
+  model = G_define_option();
+  model->key = "model";
+  model->type = TYPE_STRING;
+  model->answer = "Mobitel_Ericsson";
+  model->description = _("Used channel model");
+  
+  trans_pow = G_define_option();
+  trans_pow->key = "avg_transmit_power";
+  trans_pow->type = TYPE_DOUBLE;
+  trans_pow->answer = "26.5";
+  trans_pow->description = _("average transmit power in dBm (relevant only in case of Mobitel input raster)");
+  
+  table_input = G_define_standard_option(G_OPT_TABLE);
+  table_input->required = YES;
+
+  driver_name = G_define_standard_option(G_OPT_DRIVER);
+  driver_name->options = db_list_drivers();
+  driver_name->answer = (char *) db_get_default_driver_name();
+
+  database = G_define_standard_option(G_OPT_DATABASE);
+  database->answer = (char *) db_get_default_database_name();
+
+  measurements = G_define_option();
+  measurements->key = "measurement_data";
+  measurements->type = TYPE_STRING;
+  measurements->required = YES;
+  measurements->gisprompt = "old_file,file,input";
+  measurements->description = _("Received power field measurement data");
+
+  output = G_define_option();
+  output->key = "output";
+  output->type = TYPE_STRING;
+  output->required = YES;
+  output->gisprompt = "new_file,file,output";
+  output->description =
+	_("Name of file for output");
+
+  /* Define the different flags */   
+  flag1 = G_define_flag();
+  flag1->key = 'o';
+  flag1->description = _("allow table overwrite");
+
+  flag2 = G_define_flag();
+  flag2->key = 'q';
+  flag2->description = _("Quiet");
+
+  flag3 = G_define_flag();
+  flag3->key = 'c';
+  flag3->description = _("GRASS MaxPower raster");
+
+  /* options and flags parser */
+  if (G_parser(argc, argv))
+	exit(EXIT_FAILURE);
+     
+  /* stores options and flags to variables */
+   name = input->answer;
+   sscanf(model->answer, "%s", model_name); 
+   tabname = table_input->answer;
+   drv_name = driver_name->answer;
+   db_name = database->answer;
+   meas_name = measurements->answer;
+   out_file=output->answer;
+   tab_ovr = flag1->answer;
+   verbose = (!flag2->answer);
+   ijs = flag3->answer;
+   
+   if(!ijs)
+    sscanf(trans_pow->answer, "%lf", &Pt); //only relevant for Mobitel maxpower raster
+
+   // ******BEGIN Generate dbf Table*********
+
+   /* set connection */
+   db_get_connection(&conn);	/* read current */
+
+   if (driver_name->answer)
+	conn.driverName = drv_name;
+
+   if (database->answer)
+	conn.databaseName = db_name;
+
+   db_set_connection(&conn);
+
+   if (db_table_exists(drv_name, db_name,tabname)==1)
+      { 
+       if (tab_ovr)
+        db_delete_table(drv_name, db_name,tabname); 
+       else  
+        G_fatal_error(_("Table <%s> already exists"), tabname);
+      }
+
+   driver = db_start_driver_open_database(drv_name, db_name);   
+
+   ncols_tab = 4;
+   table = db_alloc_table(ncols_tab);
+   db_set_table_name(table, tabname);
+   
+   db_set_column_name(&table->columns[0],"x");
+   db_set_column_sqltype(&table->columns[0],DB_SQL_TYPE_INTEGER);
+   db_set_column_length(&table->columns[0],6);
+
+   db_set_column_name(&table->columns[1],"y");
+   db_set_column_sqltype(&table->columns[1],DB_SQL_TYPE_INTEGER);
+   db_set_column_length(&table->columns[1],6);
+ 
+   db_set_column_name(&table->columns[2],"resolution");
+   db_set_column_sqltype(&table->columns[2],DB_SQL_TYPE_INTEGER);
+   db_set_column_length(&table->columns[2],4);
+ 
+   db_set_column_name(&table->columns[3],"rec_power");
+   db_set_column_sqltype(&table->columns[3],DB_SQL_TYPE_INTEGER);
+   db_set_column_length(&table->columns[3],8);
+     
+   db_create_table(driver,table);  
+ 
+   // ******END Generate dbf Table*********
+
+   // ******BEGIN insert MaxPower data in dbf Table*********
+   
+   //read raster  
+
+    mapset = G_find_cell2(name, "");
+    if (mapset == NULL)
+	G_fatal_error(_("Raster map <%s> not found"), name);
+
+    /* G_open_cell_old - returns file destriptor (>0) */
+    if ((infd = G_open_cell_old(name, mapset)) < 0)
+	G_fatal_error(_("Unable to open raster map <%s>"), name);
+
+    /* controlling, if we can open input raster */
+    if (G_get_cellhd(name, mapset, &cellhd) < 0)
+	G_fatal_error(_("Unable to read file header of <%s>"), name);
+
+    G_set_window(&cellhd); //setting the region window
+    G_get_set_window(&cellhd);
+ 
+    inrast = G_allocate_raster_buf(FCELL_TYPE);
+   
+    nrows = G_window_rows();
+    ncols = G_window_cols();
+
+    db_init_string(&table_name);
+    db_set_string(&table_name, tabname);    
+    db_describe_table(driver,&table_name,&table);
+
+    x_start=round(cellhd.west);
+    y_start=round(cellhd.north);
+    res_x = round(cellhd.ew_res);
+    res_y = round(cellhd.ns_res);    
+
+    G_message(_("\nWriting MaxPower data in table '%s'..."), tabname);
+
+       /* for each row */
+    for (row = 0; row < nrows; row++)
+      {	  
+        if (verbose)
+	  G_percent(row, nrows, 2);
+ 
+        y_current = y_start - row*res_y; 
+
+        if (G_get_raster_row(infd, inrast, row, FCELL_TYPE) < 0)
+	   G_fatal_error(_("Unable to read raster map <%s> row %d"), name, row);
+           
+	 /* for each col in a row */
+	 for (col = 0; col < ncols; col++) 
+	  { 
+            x_current = x_start + col*res_x;
+          
+            /* read the column in the selected row */
+            
+         if (ijs)
+           max_power = ((FCELL *) inrast)[col];
+         else           
+           max_power = Pt-((FCELL *) inrast)[col]/100;
+        	                
+           //write values in the DBF table		
+           if (compose_insert_sql_string (table,sql,x_current,y_current,res_x,max_power) != DB_OK)
+                G_fatal_error(_("Unable to compose insert sql string! "));
+ 
+           if (db_execute_immediate(driver,sql) != DB_OK)
+ 		G_fatal_error(_("Failed writting data in the database! "));
+	  }
+      } 
+
+  /* memory cleanup */    
+    G_free(inrast);
+     
+  /* closing raster maps */
+  G_close_cell((int)infd);
+
+  G_message(_("\nWriting completed"));
+  
+  // ******END insert MaxPower data in dbf Table*********
+
+  // *******BEGIN compare results*********** 
+ 
+  G_message(_("\nPerforming simulation and measurement data comparison...")); 
+
+  //*****extract data from measurement file*****
+   if( (data_input = fopen(meas_name,"r")) == NULL )
+		G_fatal_error(_("Unable to open file <%s>"), meas_name);
+
+   if( (data_output = fopen(out_file,"w")) == NULL )
+		G_fatal_error(_("Unable to open file <%s>"), out_file);
+   
+   //read two header lines and write modified header info in output file
+   fgets (buffer, 500, data_input);
+   strcpy(buffer,"        time         |   x    |   y    |  cell   |        rscp         | x_rast | y_rast |  rscp_sim   |            model             | rscp_diff  ");
+   fprintf(data_output,"%s\r\n",buffer);    
+ 
+   fgets (buffer, 500, data_input);
+   buffer[strlen(buffer)-1]=0;
+   strcat(buffer,"+--------+--------+-------------+------------------------------+------------");
+   fprintf(data_output,"%s\r\n",buffer);
+
+   int col_length[]={8,8,13,30,12}; //st. znakov v posameznem dodanem stolpcu 
+   
+    while(fgets(buffer,500,data_input)!=NULL)
+    {
+        if(strchr(buffer,'(') != NULL)
+            break; 
+        i=0;
+	j=0;
+  	while(buffer[i] != NULL)
+	{
+          
+         if(!isspace(buffer[i]))
+         {           
+	   buffer1[j]=buffer[i];
+           j++;                     
+         }
+	i++;        
+	}
+        buffer1[j]=0; //NULL character 
+	 
+        //parsing the output string 
+        counter=0;
+        sep = strchr(buffer1,'|');       
+        
+        while (sep != NULL) {
+            field_sep[counter]=sep-buffer1;
+	    buffer1[sep-buffer1]=0;
+	    counter++;
+            sep = strchr(sep+1,'|');
+	 }
+        
+       	 strcpy(buffer2,&buffer1[field_sep[0]+1]);        
+         x_measured = atof(buffer2); 
+               
+   	 strcpy(buffer2,&buffer1[field_sep[1]+1]);
+         y_measured = atof(buffer2);
+
+	 strcpy(buffer2,&buffer1[field_sep[3]+1]);
+         rec_power_measured = atof(buffer2);
+      
+         strcpy(buffer1,""); //empty the buffer
+
+        //map x_measured and y_measured to x_rast and y_rast
+        
+        temp = round((x_measured-x_start)/res_x);
+   	x_rast = x_start+temp*res_x;
+        
+   	temp = round((y_start-y_measured)/res_y); 
+       	y_rast = y_start - temp*res_y;
+        
+        /* check if specified measuemrent point is inside the raster window  */
+	if (x_rast < round(cellhd.west) || x_rast > round(cellhd.east) || y_rast > round(cellhd.north) || y_rast < round(cellhd.south))
+              continue;
+   
+   	//*****extract simulation data from database*****
+        //compose select SQL string		
+     	if (compose_select_sql_string (tabname,sql_string,(int)x_rast,(int)y_rast) != DB_OK)
+                G_fatal_error(_("Error in function 'compose_insert_sql_string'!"));
+
+     	if (get_data (driver,sql_string,table_row_str,0) != DB_OK)
+		G_fatal_error(_("Error in function 'get_data'!"));
+
+        //parsing the output string
+     	counter=0;   
+     	sep = strchr(table_row_str,'|');        
+     	while (sep != NULL) {
+           field_sep[counter]=sep-table_row_str;
+	   table_row_str[sep-table_row_str]=0;	
+	   counter++;
+           sep = strchr(sep+1,'|');
+     	  }
+
+        //get calculated power from the string
+        strcpy(buffer1,&table_row_str[field_sep[2]+1]); 
+        rec_power_calculated = atof(buffer1)/100; 
+	     
+       //compare measured and calculated results and write them in .txt file
+        rec_power_diff = rec_power_measured-rec_power_calculated;
+   
+        if(rec_power_diff > 500)
+	  continue;
+        
+        buffer[strlen(buffer)-1]=0;
+        sprintf(add_str," | %d | %d ",(int)x_rast,(int)y_rast);
+        strcat(buffer,add_str);
+        sprintf(add_str,"| %f",rec_power_calculated);
+        strcat(buffer,add_str);
+        for (i=0;i<(col_length[2]-(strlen(add_str)-1));i++)
+            strcat(buffer," ");
+        sprintf(add_str,"| %s",model_name);
+        strcat(buffer,add_str);
+        for (i=0;i<(col_length[3]-(strlen(add_str)-1));i++)
+            strcat(buffer," ");
+        sprintf(add_str,"| %f",rec_power_diff);
+        strcat(buffer,add_str);
+        for (i=0;i<(col_length[4]-(strlen(add_str)-1));i++)
+            strcat(buffer," ");
+        fprintf(data_output,"%s\r\n",buffer);
+        
+    }
+  G_message(_("\nComparison completed!"));
+ 
+  db_close_database(driver);
+  db_shutdown_driver(driver);
+
+  exit(EXIT_SUCCESS);
+}

@@ -1,0 +1,167 @@
+mpirun -x LD_LIBRARY_PATH --hostfile hostfile.local /usr/local/grass-6.4.1RC1/bin/r.hata_daemon input=dem100i_mo@PERMANENT output=qrm_154 coordinate=463094,102454 ant_height=8 radius=50 area_type=urban frequency=2157.8 default_DEM_height=300 opencl=yes --overwrite
+- - - - - - - - - - - - - - - - - - - - - -
+XXX 1
+XXX 1
+XXX 1
+Starting ...
+Raster meta-data from 'dem100i_mo@PERMANENT'
+. . . Number of bytes per cell element 4
+. . . Number of rows 2241
+. . . Number of columns 3521
+Transmiter elevation [298.000000]
+Total transmiter elevation [306.000000]
+Querying platform for OpenCL devices ...
+device 0: CL_DEVICE_TYPE= CPU
+CL_DEVICE_VENDOR_ID=4098
+CL_DEVICE_MAX_COMPUTE_UNITS=2
+CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS=3
+CL_DEVICE_MAX_WORK_ITEM_SIZES= 1024 (symmetric)
+CL_DEVICE_MAX_WORK_GROUP_SIZE=1024
+CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR=16
+CL_DEVICE_PREFERRED_VECTOR_WIDTH_SHORT=8
+CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT=4
+CL_DEVICE_PREFERRED_VECTOR_WIDTH_LONG=2
+CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT=4
+CL_DEVICE_PREFERRED_VECTOR_WIDTH_DOUBLE=0
+CL_DEVICE_MAX_CLOCK_FREQUENCY=3799
+CL_DEVICE_ADDRESS_BITS=0x40
+CL_DEVICE_IMAGE_SUPPORT=false
+CL_DEVICE_MAX_PARAMETER_SIZE=4096
+CL_DEVICE_MEM_BASE_ADDRESS_ALIGN=1024
+CL_DEVICE_NAME=Intel(R) Pentium(R) 4 CPU 3.80GHz
+CL_DEVICE_VENDOR=GenuineIntel
+CL_DEVICE_VERSION=OpenCL 1.1 ATI-Stream-v2.3 (451)
+CL_DRIVER_VERSION=2.0
+CL_DEVICE_LOCAL_MEM_SIZE=32768
+Receiver height above ground is 1.50 mts
+Transmitter frequency is 2157.80 Mhz
+Calculation radius is 500 raster cells
+Creating 63 work-group(s) of [16 x 16] threads each
+Loading raster data into memory ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Allocating NULL raster data into memory ...
+Simulating path losses ...
+   0%Resetting memory ...
+The transmitter is located at 1468,1200,280
+Creating output raster (offset 968,700) ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Resetting memory ...
+The transmitter is located at 1395,1180,314
+Creating output raster (offset 895,680) ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Creating 63 work-group(s) of [16 x 16] threads each
+Loading raster data into memory ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Allocating NULL raster data into memory ...
+Simulating interference matrix ...
+   0%The transmitter is located at 1468,1200,280
+  50%The transmitter is located at 1395,1180,314
+Creating output raster (offset 0,0) ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Loading interference matrix from raster <qrm_154> ...
+Loading raster data into memory ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Setting initial pilot powers to 400 mW ...
+   0%  50%Loading path loss matrix from <qrm_154_0> ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Loading path loss matrix from <qrm_154_1> ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Creating 220x140 work-group(s) of [16x16] threads each
+Simulating first coverage ...
+Allocating NULL raster data into memory ...
+Allocated 3072 bytes of local memory for 768 float elements.
+Creating output raster (offset 0,0) ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%Objective function, 0 uncovered, using 6259 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short	0. transmitter power is 3144
+	1. transmitter power is 3115
+ elements.
+Simulating coverage ...
+	0. transmitter power is 3072
+	1. transmitter power is 3044
+Objective function, 0 uncovered, using 6116 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 3072
+	1. transmitter power is 3044
+	0. transmitter power is 3002
+	1. transmitter power is 2974
+Simulating coverage ...
+Objective function, 0 uncovered, using 5976 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 3002
+	1. transmitter power is 2974
+Simulating coverage ...
+	0. transmitter power is 2933
+	1. transmitter power is 2906
+Objective function, 0 uncovered, using 5839 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 2933
+	1. transmitter power is 2906
+Simulating coverage ...
+	0. transmitter power is 2866
+	1. transmitter power is 2839
+Objective function, 0 uncovered, using 5705 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 2866
+	1. transmitter power is 2839
+	0. transmitter power is 2800
+	1. transmitter power is 2774
+Simulating coverage ...
+Objective function, 0 uncovered, using 5574 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 2800
+	1. transmitter power is 2774
+Simulating coverage ...
+	0. transmitter power is 2736
+	1. transmitter power is 2710
+Objective function, 0 uncovered, using 5446 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 2736
+	1. transmitter power is 2710
+Simulating coverage ...
+	0. transmitter power is 2673
+	1. transmitter power is 2648
+Objective function, 0 uncovered, using 5321 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 2673
+	1. transmitter power is 2648
+Simulating coverage ...
+	0. transmitter power is 2612
+	1. transmitter power is 2587
+Objective function, 0 uncovered, using 5199 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 2612
+	1. transmitter power is 2587
+Simulating coverage ...
+	0. transmitter power is 2552
+	1. transmitter power is 2528
+Objective function, 0 uncovered, using 5080 mW
+Launching agent kernel ...
+Allocated 32 bytes of local memory for 16 short elements.
+	0. transmitter power is 2552
+	1. transmitter power is 2528
+Simulating coverage ...
+	0. transmitter power is 2493
+	1. transmitter power is 2470
+Creating output raster (offset 0,0) ...
+   0%   3%   6%   9%  12%  15%  18%  21%  24%  27%  30%  33%  36%  39%  42%  45%  48%  51%  54%  57%  60%  63%  66%  69%  72%  75%  78%  81%  84%  87%  90%  93%  96%  99%[tita:08193] *** Process received signal ***
+[tita:08193] Signal: Aborted (6)
+[tita:08193] Signal code:  (-6)
+[tita:08193] [ 0] /lib/libpthread.so.0(+0xf150) [0x7fc95974c150]
+[tita:08193] [ 1] /lib/libc.so.6(gsignal+0x35) [0x7fc95940e655]
+[tita:08193] [ 2] /lib/libc.so.6(abort+0x186) [0x7fc95940fad6]
+[tita:08193] [ 3] /lib/libc.so.6(+0x6c7eb) [0x7fc9594487eb]
+[tita:08193] [ 4] /lib/libc.so.6(+0x71b96) [0x7fc95944db96]
+[tita:08193] [ 5] /lib/libc.so.6(cfree+0x6c) [0x7fc95945296c]
+[tita:08193] [ 6] /usr/local/grass-6.4.1RC1/bin/r.hata_daemon(master+0x9fd) [0x4065fd]
+[tita:08193] [ 7] /usr/local/grass-6.4.1RC1/bin/r.hata_daemon(main+0x3d) [0x4049dd]
+[tita:08193] [ 8] /lib/libc.so.6(__libc_start_main+0xfd) [0x7fc9593fadcd]
+[tita:08193] [ 9] /usr/local/grass-6.4.1RC1/bin/r.hata_daemon() [0x402839]
+[tita:08193] *** End of error message ***
+--------------------------------------------------------------------------
+mpirun noticed that process rank 0 with PID 8193 on node tita exited on signal 6 (Aborted).
+--------------------------------------------------------------------------
+
+Compilation terminated.
+mpirun: killing job...
+

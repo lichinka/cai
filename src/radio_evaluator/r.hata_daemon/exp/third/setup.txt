@@ -1,0 +1,5 @@
+- Ljubljana + surroundings, 129 transmitters, 45 km radius around each one.
+- Area extent is 445000,158000 - 535000,68000
+- Att-based solution is ??? mW.
+- 16 agents, 20000 steps each (cca. 3 hours)
+- +0.2dB, -0.1dB

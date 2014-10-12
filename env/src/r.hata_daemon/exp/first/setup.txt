@@ -1,0 +1,6 @@
+- Ljubljana - center, 77 transmitters, 5 km radius around each one.
+- Area extent is 454000,111000 - 464000,101000
+- Interference level calculated with all transmitters working at 10W.
+- Att-based solution is 419292 mW.
+- 16 agents, 10000 steps each.
+- +0.2dB, -0.1dB

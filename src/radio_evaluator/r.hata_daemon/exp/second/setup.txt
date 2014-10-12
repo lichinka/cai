@@ -1,0 +1,5 @@
+- Ljutomer, 23 transmitters, 17,5 km radius around each one.
+- Area extent is 572000,175000 - 607000,142000
+- Att-based solution is 499349 mW.
+- 16 agents, 5000 steps each (cca. 2000 steps every 10 minutes).
+- +0.2dB, -0.1dB

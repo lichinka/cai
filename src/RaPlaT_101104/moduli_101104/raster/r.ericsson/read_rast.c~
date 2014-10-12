@@ -1,0 +1,102 @@
+/*
+ * Copyright (C) 2000 by the GRASS Development Team
+ * Author: Bob Covill <bcovill@tekmap.ns.ca>
+ * 
+ * This Program is free software under the GPL (>=v2)
+ * Read the file COPYING coming with GRASS for details
+ *
+ */
+
+/****************************************************************************
+ *
+ * MODULE:       read_rast.c function for r.ericsson
+ * AUTHOR(S):    Andrej Vilhar, Andrej Hrovat, Jozef Stefan Institute                
+ *
+ * PURPOSE:      Calculates radio coverage from a single base station 
+ *               according to Ericsson model
+ *
+ * MODULE:	 read_raster.c
+ *
+ * COPYRIGHT:    (C) 2009 Jozef Stefan Institute
+ *
+ *
+ *****************************************************************************/
+
+#include <grass/gis.h>
+#include <grass/glocale.h>
+#include "local_proto.h"
+#include <stdlib.h>
+
+int read_rast(double east, double north, double dist, int infd, 
+	      RASTER_MAP_TYPE data_type, char *null_string, struct Cell_head win)
+{
+
+    int row, col, nrows, ncols;
+    CELL *cell, nullcell;
+    char buf[1024] = "";
+    int	elev_temp;
+   
+    FCELL *fcell;
+    DCELL *dcell;
+    int outofbounds = FALSE;
+
+    nrows = win.rows;
+    ncols = win.cols;
+
+    row = (win.north - north) / win.ns_res;
+    col = (east - win.west) / win.ew_res;
+    G_debug(4, "row=%d:%d  col=%d:%d", row, nrows, col, ncols);
+
+    if ((row < 0) || (row >= nrows) || (col < 0) || (col >= ncols)){
+	outofbounds = TRUE;
+	}
+
+    /* set dummy CELL value to null for out-of-region color */
+    G_set_c_null_value(&nullcell, 1);
+
+
+    if (data_type == CELL_TYPE) {
+	cell = G_allocate_c_raster_buf();
+	if (!outofbounds && G_get_c_raster_row(infd, cell, row) < 0)
+	    G_fatal_error(_("Unable to read raster map <%s> row %d"), cell,row);
+
+	if (outofbounds || G_is_c_null_value(&cell[col]))
+	    sprintf(buf, null_string);
+	else
+	    sprintf(buf, "%d", cell[col]);
+
+	elev_temp = atoi (buf);
+	G_free(cell);
+    }
+
+    if (data_type == FCELL_TYPE) {
+	fcell = G_allocate_f_raster_buf();
+	if (!outofbounds && G_get_f_raster_row(infd, fcell, row) < 0)
+	    G_fatal_error(_("Unable to read raster map <%s> row %d"), fcell,row);
+
+	if (outofbounds || G_is_f_null_value(&fcell[col]))
+	    sprintf(buf, null_string);
+	else
+	    sprintf(buf, "%f", fcell[col]);
+
+	elev_temp = atoi (buf);
+	G_free(fcell);
+    }
+
+    if (data_type == DCELL_TYPE) {
+	dcell = G_allocate_d_raster_buf();
+	if (!outofbounds && G_get_d_raster_row(infd, dcell, row) < 0)
+	    G_fatal_error(_("Unable to read raster map <%s> row %d"), dcell,row);
+
+	if (outofbounds || G_is_d_null_value(&dcell[col]))
+	    sprintf(buf, null_string);
+	else
+	    sprintf(buf, "%f", dcell[col]);
+    
+	elev_temp = atoi (buf);
+	G_free(dcell);
+    }
+	
+     return elev_temp;
+    /*return 0;*/
+}

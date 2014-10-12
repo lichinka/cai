@@ -1,0 +1,18 @@
+Agent behaviour is as follows:
+
+    + Movement is random, generally non-contiguous. The thread ID is used as random seed.
+    + An agent shall lower the pilot power of the transmitter with the lowest (non-zero) power.
+      This also (potentially) includes the best server at a given coordinate. 
+    + Agents know whether the current solution is valid or not (i.e. whether full coverage has been achieved).
+      If the current solution is valid, all agents will lower the pilot power of the weakest transmitter at a 
+      given coordinate. If, on the other hand, full coverage has not yet been achieved, a configurable portion
+      of "special" agents (here 50%, i.e. agents with odd ID) will randomly select one uncovered location from
+      a list of all uncovered pixels received living in global memory, and strictly raise pilot powers there. 
+      Meanwhile, the other half shall work as usual, i.e. lowering pilot power where the coordinate is covered,
+      and raising it otherwise.
+    + Implementation is on GPU, launching one thread block only, containing as many threads as there are agents.
+    + The thread block is organized in a 1D grid.
+    + Agent's signal analysis is saved in shared memory, containing the transmitter ID at position 2*threadId, 
+      and the new pilot power at position 2*threadId+1. Both number are unsigned shorts.
+    + When saving the new pilot powers back to the pilot power vector in global memory, the new powers should
+      be negative, so that they are recognized at the evaluator when coverage recalculation is executed.

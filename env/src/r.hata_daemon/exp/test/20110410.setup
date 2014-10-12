@@ -1,0 +1,4 @@
+- First 16 transmitters, 50 km radius around each one.
+- 7 agents, 10000 steps each (cca. 4 hours for 5000 steps).
+- After 2,5 hours => 30043 mW
+- After finishing => 29365 mW

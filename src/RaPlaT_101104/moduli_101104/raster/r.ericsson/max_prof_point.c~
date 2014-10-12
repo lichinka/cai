@@ -1,0 +1,23 @@
+/****************************************************************************
+ *
+ * MODULE:       max_prof_point.c for r.ericsson
+ * AUTHOR(S):    Andrej Vilhar, Andrej Hrovat, Jozef Stefan Institute                
+ *
+ * PURPOSE:      Calculates radio coverage from a single base station 
+ *               according to Ericsson model
+ *             
+ *
+ * COPYRIGHT:    (C) 2009 Jozef Stefan Institute
+ *
+ *
+ *****************************************************************************/
+
+#include <grass/gis.h>
+#include <grass/glocale.h>
+#include "local_proto.h"
+
+/* int max_prof_point()  */
+
+double e1, e2, n1, n2;
+	
+	do_profile(e1, e2, n1, n2, name, coords, res, fd, data_type, fp,null_string);	

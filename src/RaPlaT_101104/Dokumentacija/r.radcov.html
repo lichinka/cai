@@ -1,0 +1,93 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>r.radcov</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link rel="stylesheet" href="grassdocs.css" type="text/css">
+</head>
+<body bgcolor="white">
+
+<img src="grass.smlogo.gif" alt="GRASS logo"><hr align=center size=6 noshade>
+
+<h2>NAME</h2>
+<em><b>r.radcov</b></em>  - Radio coverage simulation
+<h2>KEYWORDS</h2>
+<h2>SYNOPSIS</h2>
+<b>r.radcov</b><br>
+<b>r.radcov help</b><br>
+<b>r.radcov</b> [-<b>rpc</b>] <b>csv_file</b>=<em>string</em> <b>antmap_file</b>=<em>string</em> <b>dem_map</b>=<em>string</em>  [<b>default_height</b>=<em>integer</em>]   [<b>clutter_map</b>=<em>string</em>]   [<b>default_clutter</b>=<em>integer</em>]   [<b>region</b>=<em>string</em>]  <b>frequency</b>=<em>integer</em> <b>cellnum</b>=<em>integer</em> <b>out_map</b>=<em>string</em> <b>db_driver</b>=<em>string</em> <b>database</b>=<em>string</em> <b>out_table</b>=<em>string</em>  [<b>procnum</b>=<em>integer</em>]   [--<b>overwrite</b>] 
+
+<h3>Flags:</h3>
+<DL>
+<DT><b>-r</b></DT>
+<DD>Recalculate all sector radio coverage files</DD>
+
+<DT><b>-p</b></DT>
+<DD>(purge) Delete all unused sector radio coverage files</DD>
+
+<DT><b>-c</b></DT>
+<DD>(check) Test run without actually performing radio coverage computation</DD>
+
+<DT><b>--overwrite</b></DT>
+<DD>Force overwrite of output files</DD></DL>
+
+<h3>Parameters:</h3>
+<DL>
+<DT><b>csv_file</b>=<em>string</em></DT>
+<DD>Radio cell/sector table in CSV format</DD>
+<DD>Default: <em>sector_table.csv</em></DD>
+
+<DT><b>antmap_file</b>=<em>string</em></DT>
+<DD>Antennas map file</DD>
+<DD>Default: <em>$GISBASE/etc/radio_coverage/antennamap</em></DD>
+
+<DT><b>dem_map</b>=<em>string</em></DT>
+<DD>DEM file for radio coverage simulation</DD>
+<DD>Default: <em>dem_map@PERMANENT</em></DD>
+
+<DT><b>default_height</b>=<em>integer</em></DT>
+<DD>Default DEM height</DD>
+
+<DT><b>clutter_map</b>=<em>string</em></DT>
+<DD>Clutter map file (required for Ericsson model)</DD>
+<DD>Default: <em>clutter_map@PERMANENT</em></DD>
+
+<DT><b>default_clutter</b>=<em>integer</em></DT>
+<DD>Default clutter attenuation</DD>
+
+<DT><b>region</b>=<em>string</em></DT>
+<DD>Computation region (dem,current or region,rast,n,e,s,w,res (see g.region))</DD>
+<DD>Default: <em>dem</em></DD>
+
+<DT><b>frequency</b>=<em>integer</em></DT>
+<DD>Radio frequency</DD>
+<DD>Default: <em>900</em></DD>
+
+<DT><b>cellnum</b>=<em>integer</em></DT>
+<DD>Number of succesive path loss values to be written in the table</DD>
+<DD>Default: <em>5</em></DD>
+
+<DT><b>out_map</b>=<em>string</em></DT>
+<DD>Simulated radio coverage - raster (output)</DD>
+<DD>Default: <em>out_raster</em></DD>
+
+<DT><b>db_driver</b>=<em>string</em></DT>
+<DD>Database driver</DD>
+<DD>Options: <em>none,dbf,mysql,pg</em></DD>
+<DD>Default: <em>none</em></DD>
+
+<DT><b>database</b>=<em>string</em></DT>
+<DD>Database name</DD>
+<DD>Default: <em>$GISDBASE/$LOCATION_NAME/$MAPSET/dbf</em></DD>
+
+<DT><b>out_table</b>=<em>string</em></DT>
+<DD>Simulated radio coverage - db table (output)</DD>
+<DD>Default: <em>out_db</em></DD>
+
+<DT><b>procnum</b>=<em>integer</em></DT>
+<DD>Number of parallel processes (-1: automatic, 0: non-parallel)</DD>
+<DD>Default: <em>-1</em></DD>
+
+</DL>
+</body>
+</html>

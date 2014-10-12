@@ -1,0 +1,521 @@
+
+/****************************************************************************
+ *
+ * MODULE:       r.MaxPower
+ * AUTHOR(S):    Tine Celcer, Jozef Stefan Institute                
+ *
+ * PURPOSE:      Sorts the recieved power levels from different cells in descending order and writes data in dbf database 
+ *             
+ *
+ * COPYRIGHT:    (C) 2009 Jozef Stefan Institute
+ *
+ *
+ *****************************************************************************/
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <grass/gis.h>
+#include <grass/glocale.h>
+#include <math.h>
+#include <grass/dbmi.h>
+
+
+int fill_database(dbTable *table,dbDriver *driver, int ncols, int nrows, int x_start, int y_start, int res, int **arr_power, int **arr_index, char *cell_name[], char *model_name[], int map_number, int **arr_EcNo, int verbose)
+ {
+       
+    int table_col, table_ncols, ncols_old=0;
+    int col,row;
+    int cell, ncells;
+    int x,y;
+    const char *colname;
+    char buf[500];
+    dbColumn *column;
+    dbString sql[500];
+
+    table_ncols = db_get_table_number_of_columns(table);
+    ncells = (table_ncols-1)/3-1;
+
+    if (ncells>map_number)
+	{
+	 ncells = map_number;
+         ncols_old = table_ncols;
+	 table_ncols = (ncells+1)*3+1;        
+	}
+
+    db_init_string(sql);
+
+    for (row = 0; row < nrows; row++)
+     {
+       y = y_start - row*res; 
+     
+      for (col = 0; col < ncols; col++) 
+	{
+          if (verbose)
+	  G_percent(row*ncols + col, nrows*ncols, 2);
+          
+          x = x_start + col*res;         
+          db_set_string(sql,"INSERT INTO ");
+          db_append_string(sql, db_get_table_name(table));
+          db_append_string(sql, " ( ");
+           
+          for (table_col = 0; table_col < table_ncols; table_col++) 
+           {
+       
+            column = db_get_table_column(table, table_col);
+	    colname = db_get_column_name(column);
+            G_debug(3, "%s", colname);
+
+	    if (table_col > 0)
+	       db_append_string(sql, ", ");
+
+	    db_append_string(sql, colname);
+           }
+          
+         if(ncols_old)
+	  {
+	    column = db_get_table_column(table, ncols_old-1);
+	    colname = db_get_column_name(column);
+            G_debug(3, "%s", colname);
+	    db_append_string(sql, ", ");
+            db_append_string(sql, colname); 
+	  }        
+
+         db_append_string(sql, " ) VALUES (");
+
+         for (cell = 0; cell < ncells+1; cell++) 
+           {
+            if(cell==0)
+             {
+	      sprintf(buf, "%d,%d,%d",x,y,res);
+	     }
+
+            else
+	     { 
+              sprintf(buf, ",'%s',%d,'%s'",cell_name[arr_index[row*ncols + col][cell-1]],arr_power[row*ncols + col][cell-1],model_name[arr_index[row*ncols + col][cell-1]]);
+       	     }
+        
+            db_append_string(sql, buf);
+           }
+         //G_message(_("EcN0 = %d"), arr_EcNo[row][col]);
+          
+         sprintf(buf, ",%d",arr_EcNo[row][col]);
+         db_append_string(sql, buf);
+
+         db_append_string(sql, " )");
+ 
+         G_debug(3, db_get_string(sql));
+         //G_message(_("sql string: %s"), sql[0]);
+
+         if (db_execute_immediate(driver,sql) != DB_OK)
+ 		G_fatal_error(_("Failed writting data in the database! "));
+
+        } //cols loop
+       } //rows loop   
+
+    return DB_OK;
+ }
+
+//------------------------------------------------------------------------------
+
+/*
+ * main function
+ */
+int main(int argc, char *argv[])
+{
+       
+    struct Cell_head window;	// database window
+    struct Cell_head cellhd;	/* it stores region information, and header information of rasters */     
+    struct History history;	/* holds meta-data (title, comments,..) */
+    struct GModule *module;	/* GRASS module for parsing arguments */
+    struct Option *output,*table_input,*file_name, *driver_name,*database;	/* options*/
+    struct Flag *flag1;		/* flags */
+
+    char *outraster_name;		/* output raster name */
+    char *tabname;			/* dbf table name */
+    char *drv_name;
+    char *db_name;
+    char *in_file;			/* input cell data file name */
+    int verbose;
+    void *inrast;		/* input buffer */
+    unsigned char *outrast;	/* output buffer */
+    int infd,outfd;		/* input and output file descriptor */
+
+    int map_number;		/* number of input raster maps*/
+    int nrows, ncols;
+    int row, col, map, n, i;
+    int x_start,y_start,res_x,res_y;
+    int counter;   
+    int ncols_tab,cell_num;		/* number of columns in dbf table*/
+    int field_sep[10]; 
+    char *sep;
+    char buffer[250];
+    char buffer1[5];    
+    dbDriver *driver;
+    dbString table_name;
+    dbTable *table;
+    FILE *cell_input;
+
+    FCELL f_in, f_out;
+    int temp,temp_index;
+
+   //-----------------------------------------------------------------------------------------
+    
+    /* initialize GIS environment */
+    G_gisinit(argv[0]);		/* reads grass env, stores program name to G_program_name() */
+
+    /* initialize module */
+    module = G_define_module();
+    module->keywords = _("raster, MaxPower");
+    module->description = _("MaxPower module");
+
+    file_name = G_define_option();
+    file_name->key = "cell_input";
+    file_name->type = TYPE_STRING;
+    file_name->required = YES;
+    file_name->gisprompt = "old_file,file,input";
+    file_name->description = _("Cells data table");
+
+    output = G_define_standard_option(G_OPT_R_OUTPUT);
+
+    table_input = G_define_option();
+    table_input->required = YES;
+    table_input->key = "table";
+    table_input->type = TYPE_STRING;
+    table_input->description = _("Table name");
+
+    driver_name = G_define_option();
+    driver_name->required = YES;
+    driver_name->key = "driver";
+    driver_name->type = TYPE_STRING;
+    driver_name->description = _("Driver name");
+    driver_name->options = db_list_drivers();
+    strcat(driver_name->options, ",none");
+    driver_name->answer = "none";
+
+    database = G_define_option();
+    database->required = YES;
+    database->key = "database";
+    database->type = TYPE_STRING;
+    database->description = _("Database name");
+    database->answer = "$GISDBASE/$LOCATION_NAME/$MAPSET/dbf/";
+
+    /* Define the different flags */
+    flag1 = G_define_flag();
+    flag1->key = 'q';
+    flag1->description = _("Quiet");   
+
+    /* options and flags parser */
+    if (G_parser(argc, argv))
+	exit(EXIT_FAILURE);
+
+    /* stores options and flags to variables */    
+    outraster_name = output->answer;
+    tabname = table_input->answer;
+    drv_name = driver_name->answer;
+    db_name = database->answer;
+    verbose = (!flag1->answer);	
+    in_file = file_name->answer;
+
+    //*****extract data from measurement file*****
+    if( (cell_input = fopen(in_file,"r")) == NULL )
+		G_fatal_error(_("Unable to open file <%s>"), in_file);
+ 
+    //read number of input cells
+    fgets (buffer, 250, cell_input);
+    sscanf(buffer,"%d",&map_number);
+      
+    char *name[map_number]; 		/* input raster file name */
+    char *cell_name[map_number];          /* input cell name */
+    char *model_name[map_number];
+    char *mapset[map_number];		/* mapset name */
+    double Pt[map_number];
+    
+    // *****store cell data****** 
+    for (n = 0; n<map_number; n++)
+     {
+     fgets (buffer, 250, cell_input);
+     //parsing the output string
+     	counter=0;
+     	sep = strchr(buffer,';');        
+     	while (sep != NULL) {
+          field_sep[counter]=sep-buffer;         
+	  buffer[sep-buffer]=0;	
+	  counter++;
+          sep = strchr(sep+1,';');
+     	}    
+
+     cell_name[n]=malloc(strlen(buffer)+1); 
+     strcpy(cell_name[n],buffer); //get cell name from file
+     
+     name[n]=malloc(strlen(&buffer[field_sep[0]+1])+1);
+     strcpy(name[n],&buffer[field_sep[0]+1]);//get input raster from file
+
+     strcpy(buffer1,&buffer[field_sep[1]+1]);
+     Pt[n]=atof(buffer1);//get cell transmitt power from file
+  
+     model_name[n]=malloc(field_sep[counter-1]-field_sep[2]+1);
+     strcpy(model_name[n],&buffer[field_sep[2]+1]);//get the name of the channel model
+
+     for (i=3;i<counter;i++)
+      {
+        if(field_sep[i+1]-field_sep[i] ==1)
+	  break;
+       strcat(model_name[n],"_");
+       strcat(model_name[n],&buffer[field_sep[i]+1]);
+      }
+     
+     /* returns NULL if the map was not found in any mapset, 
+     * mapset name otherwise */
+     mapset[n] = G_find_cell2(name[n], "");
+     if (mapset == NULL)
+	G_fatal_error(_("Raster map <%s> not found"), name[n]);
+     }
+    
+
+    //open database, start driver, find table and table number of columns 
+    if (strcmp("none",drv_name))
+     { 
+      driver = db_start_driver_open_database(drv_name, db_name);
+      db_init_string(&table_name);
+      db_set_string(&table_name, tabname);    
+      db_describe_table(driver,&table_name,&table);
+      ncols_tab = db_get_table_number_of_columns(table);
+      cell_num = ncols_tab/3-1;
+     }
+    else
+      cell_num = 1; //only highest signal for maxpower output raster
+    
+    // *****save first raster, to get number of columns and rows and to allocate output raster*****
+    /* G_open_cell_old - returns file descriptor (>0) */
+     if ((infd = G_open_cell_old(name[0], mapset[0])) < 0)
+	G_fatal_error(_("Unable to open raster map <%s>"), name[0]);
+
+     /* controlling, if we can open input raster */
+     if (G_get_cellhd(name[0], mapset[0], &cellhd) < 0)
+	G_fatal_error(_("Unable to read file header of <%s>"), name[0]);
+
+   // G_set_window(&cellhd); 
+   // G_get_set_window(&cellhd);
+      G_get_window (&window); //setting the region window
+
+
+    if (G_legal_filename(outraster_name) < 0)
+	G_fatal_error(_("<%s> is an illegal file name"), outraster_name);
+   
+    /* Allocate output buffer, use input map data_type */
+    nrows = G_window_rows();  
+    ncols = G_window_cols();
+    outrast = G_allocate_raster_buf(FCELL_TYPE);
+
+    /* controlling, if we can write the raster */
+    if ((outfd = G_open_raster_new(outraster_name, FCELL_TYPE)) < 0)
+	G_fatal_error(_("Unable to create raster map <%s>"), outraster_name);
+
+    int num_points = nrows*ncols;    
+    /*POWER ARRAY*/
+    int **arr_power; 
+    
+    arr_power = (int **)G_calloc(num_points, sizeof(int *));
+
+    int *tmp_arrpower = (int *)G_calloc(num_points * cell_num, sizeof(int));
+    memset (tmp_arrpower, 0, num_points * cell_num * sizeof(int));
+	for (i=0; i<num_points;i++)	
+	{
+		arr_power [i] = tmp_arrpower + i*cell_num;
+	}
+   
+    /*INDEX ARRAY*/
+    int **arr_index;
+    arr_index = (int **)G_calloc(num_points, sizeof(int *));
+    int *tmp_arrindex = (int *)G_calloc(num_points * cell_num, sizeof(int));
+    memset (tmp_arrindex, 0, num_points * cell_num * sizeof(int));
+	for (i=0; i<num_points;i++)	
+	{
+		arr_index [i] = tmp_arrindex + i*cell_num;
+	} 
+     
+    /*ECNO ARRAY*/
+    int **arr_EcNo;
+    arr_EcNo = (int **)G_calloc(nrows, sizeof(int *));
+    int *tmp_arrEcNo = (int *)G_calloc(nrows*ncols, sizeof(int));
+    memset (tmp_arrEcNo, 0, nrows*ncols * sizeof(int));
+	for (i=0; i<nrows;i++)	
+	{
+		arr_EcNo [i] = tmp_arrEcNo + i*ncols;
+	} 
+    
+    /*SUM POWER ARRAY*/
+    double **arr_sumpower;
+    arr_sumpower = (double **)G_calloc(nrows, sizeof(double *));
+    double *tmp_arrsumpower = (double *)G_calloc(nrows * ncols, sizeof(double));
+    memset (tmp_arrsumpower, 0, nrows * ncols * sizeof(double));
+	for (i=0; i<nrows;i++)	
+	{
+		arr_sumpower [i] = tmp_arrsumpower + i*ncols;
+	}
+
+    /* Write rasters to array and sort power values and indexes - for each point */
+    int count_mem;
+    //G_message(_("\n...check_progress..., numn points = %d"),num_points);
+    
+    
+    G_message(_("\nSorting receive power values")); 
+
+    for (map = 0; map<map_number; map++)
+     {
+            
+      if (verbose)
+	  G_percent(map+1, map_number, 2);
+
+      /* G_open_cell_old - returns file descriptor (>0) */
+      if ((infd = G_open_cell_old(name[map], mapset[map])) < 0)
+	  G_fatal_error(_("Unable to open raster map <%s>"), name[map]);
+
+      /* controlling, if we can open input raster */
+      if (G_get_cellhd(name[map], mapset[map], &cellhd) < 0)
+	G_fatal_error(_("Unable to read file header of <%s>"), name[map]);
+     
+     /* Allocate input buffer */
+     inrast = G_allocate_raster_buf(FCELL_TYPE);
+
+      /* for each row */
+      for (row = 0; row < nrows; row++)
+       {
+        
+        if (G_get_raster_row(infd, inrast, row, FCELL_TYPE) < 0)
+          G_fatal_error(_("Unable to read raster map <%s> row %d"), name[map], row);
+
+       /* process the data */
+	for (col = 0; col < ncols; col++)
+	  { 
+	    
+            if(map==0)
+              arr_sumpower[row][col]=0;
+
+            if (G_is_f_null_value(&((FCELL *) inrast)[col]))
+              f_in=-999;
+            else
+              f_in = (Pt[map] - ((FCELL *) inrast)[col]); //calculate receive power in dBm (Pr)
+            
+
+            //if(f_in > 0) //in case of void (null) inrast value - to avoid case Pr=Pt
+             //f_in=-999;    
+
+            if(f_in > -500)
+            arr_sumpower[row][col] = arr_sumpower[row][col] + pow(10,f_in/10); //sum power in mW 
+
+            f_in=f_in*100; //for writting int values in table (multiplied by 100 to include two decimal numbers)
+
+            if (map<cell_num)
+             {  
+	      arr_power[row*ncols+col][map] = (int)f_in;
+              arr_index[row*ncols+col][map] = map;
+              count_mem = map;
+	     }
+	    else
+             {
+               
+	       if((int)f_in < arr_power[row*ncols+col][cell_num-1])
+		 continue;
+	       else
+                {
+	         arr_power[row*ncols+col][cell_num-1] = (int)f_in;
+                 arr_index[row*ncols+col][cell_num-1] = map;
+		}
+	     }
+
+	    //sort receive power values and cell indexes
+            if(map) //do not sort for the first cell
+	     {	 
+              for (i=count_mem; i>0; i--)
+		{
+		   if(arr_power[row*ncols+col][i]>arr_power[row*ncols+col][i-1])
+		    {
+			temp=arr_power[row*ncols+col][i];
+			arr_power[row*ncols+col][i]=arr_power[row*ncols+col][i-1];
+		        arr_power[row*ncols+col][i-1]=temp;
+
+		        temp_index=arr_index[row*ncols+col][i];
+		        arr_index[row*ncols+col][i]=arr_index[row*ncols+col][i-1];
+		        arr_index[row*ncols+col][i-1]=temp_index;
+		    } 
+		   else
+			break;    
+		}	
+             }
+						 	      
+          } //cols loop
+      } //rows loop
+
+     G_close_cell(infd);
+
+     G_free(inrast);      
+
+     } //map (raster) loop
+
+    G_message(_("\nFinished sorting receive power values")); 
+         		
+    //****write MaxPower output raster and calculate Ec/No****
+      for (row = 0; row < nrows; row++)
+         {
+           for (col = 0; col < ncols; col++)
+            { 
+              f_out=(FCELL)arr_power[row*ncols+col][0]/100;
+              if (f_out<-900)
+                G_set_f_null_value(&f_out, 1);
+              ((FCELL *) outrast)[col] = f_out; 
+
+              arr_sumpower[row][col] = 10*log10(arr_sumpower[row][col]); //conversion from mW to dBm
+              arr_EcNo[row][col] = (int)((f_out - arr_sumpower[row][col])*100); // multiplied by 100 to include two decimal numbers
+              //G_message(_("f_out = %f"), f_out); 
+              //G_message(_("sum_power_dBm = %f"), arr_sumpower[row][col]); 
+	      //G_message(_("EcN0 = %d"), arr_EcNo[row][col]);
+            }
+	 
+	 if (G_put_raster_row(outfd, outrast, FCELL_TYPE) < 0)
+	  G_fatal_error(_("Failed writing raster map <%s>"), outraster_name);  
+	 }
+
+    //****write values in the DBF table****
+
+    if (strcmp("none",drv_name))
+     {  
+          x_start = (int)round(window.west);
+   	  y_start = (int)round(window.north);
+    	  res_x = (int)round(window.ew_res);
+    	  res_y = (int)round(window.ns_res);
+          G_message(_("\nWriting MaxPower data in table '%s'..."), tabname);
+    		
+          if (fill_database(table,driver,ncols,nrows,x_start,y_start,res_x,arr_power,arr_index,cell_name,model_name,map_number,arr_EcNo,verbose) != DB_OK)
+                G_fatal_error(_("Error writing data in database! ")); 
+
+          G_message(_("\nFinished writing MaxPower data in table '%s'..."), tabname);    
+    
+          //***close database and shut down DBF driver***
+          db_close_database(driver);
+          db_shutdown_driver(driver);  
+     }    
+
+    /* memory cleanup */
+    G_free(outrast);
+
+    G_free(arr_power);
+    G_free(tmp_arrpower);
+    G_free(arr_index);
+    G_free(tmp_arrindex);
+    
+ 
+    /* closing raster maps */
+    G_close_cell(infd);
+    G_close_cell(outfd);
+
+    /* add command line incantation to history file */
+    G_short_history(outraster_name, "raster", &history);
+    G_command_history(&history);
+    G_write_history(outraster_name, &history);     
+
+    exit(EXIT_SUCCESS);
+}
+

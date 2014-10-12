@@ -1,0 +1,17 @@
+CXX = mpicc
+CXXFLAGS = -g -O2
+INC = -I /usr/include
+LIB =
+BINARY = test_mpi
+OBJECTS = test_mpi.o
+
+all: $(BINARY)
+
+test_mpi: $(OBJECTS)
+	$(CXX) -o $(BINARY) $(OBJECTS) $(LIB)
+
+%.o: %.c
+	$(CXX) $(CXXFLAGS) $(INC) -c $<
+
+clean:
+	rm -f $(BINARY) $(OBJECTS)
