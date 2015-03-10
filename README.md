@@ -1,8 +1,4 @@
-
-======
-FIXME: Find out why there is a value 0.05012531 comming out of transmitter 22!
-======
-
+FIXME: Find out why there is a value 0.05012531 comming out of transmitter 22
 
 
 Installing GRASS and the prediction modules
